@@ -24,6 +24,7 @@ interface Options {
   tableName: string;
   sidFieldName: string;
   verbose: boolean;
+  avoidUnnecessaryTouch: boolean;
 }
 
 export class ConnectSessionKnexStore extends Store {
@@ -43,6 +44,7 @@ export class ConnectSessionKnexStore extends Store {
         console.error(err);
       },
       verbose: false,
+      avoidUnnecessaryTouch: false,
       ...incomingOptions,
       knex:
         incomingOptions.knex ??
@@ -199,10 +201,10 @@ export class ConnectSessionKnexStore extends Store {
 
   async touch(sid: string, session: SessionData, callback?: () => void) {
     await this.ready;
-    const { knex, tableName, sidFieldName, verbose } = this.options;
+    const { knex, tableName, sidFieldName, verbose, avoidUnnecessaryTouch } = this.options;
 
     if (session && session.cookie && session.cookie.expires) {
-      if (Date.now() <= session.cookie.expires.getTime()) {
+      if (avoidUnnecessaryTouch && Date.now() <= session.cookie.expires.getTime()) {
         if (verbose) {
           console.log("session touch", knex(tableName)
             .where(sidFieldName, "=", sid)
@@ -212,6 +214,24 @@ export class ConnectSessionKnexStore extends Store {
         }
         await knex(tableName)
           .where(sidFieldName, "=", sid)
+          .update({
+            expired: dateAsISO(knex, session.cookie.expires),
+          });
+      } else if (!avoidUnnecessaryTouch) {
+        const condition = expiredCondition(knex);
+
+        if (verbose) {
+          console.log("session touch", knex(tableName)
+          .where(sidFieldName, "=", sid)
+          .andWhereRaw(condition, dateAsISO(knex))
+          .update({
+            expired: dateAsISO(knex, session.cookie.expires),
+          }).toSQL());
+        }
+
+        await knex(tableName)
+          .where(sidFieldName, "=", sid)
+          .andWhereRaw(condition, dateAsISO(knex))
           .update({
             expired: dateAsISO(knex, session.cookie.expires),
           });

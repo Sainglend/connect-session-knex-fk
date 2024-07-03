@@ -9,6 +9,7 @@ interface Options {
     tableName: string;
     sidFieldName: string;
     verbose: boolean;
+    avoidUnnecessaryTouch: boolean;
 }
 export declare class ConnectSessionKnexStore extends Store {
     options: Options;

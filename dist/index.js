@@ -22,6 +22,7 @@ class ConnectSessionKnexStore extends express_session_1.Store {
                 console.error(err);
             },
             verbose: false,
+            avoidUnnecessaryTouch: false,
             ...incomingOptions,
             knex: incomingOptions.knex ??
                 (0, knex_1.default)({
@@ -168,9 +169,9 @@ class ConnectSessionKnexStore extends express_session_1.Store {
     }
     async touch(sid, session, callback) {
         await this.ready;
-        const { knex, tableName, sidFieldName, verbose } = this.options;
+        const { knex, tableName, sidFieldName, verbose, avoidUnnecessaryTouch } = this.options;
         if (session && session.cookie && session.cookie.expires) {
-            if (Date.now() <= session.cookie.expires.getTime()) {
+            if (avoidUnnecessaryTouch && Date.now() <= session.cookie.expires.getTime()) {
                 if (verbose) {
                     console.log("session touch", knex(tableName)
                         .where(sidFieldName, "=", sid)
@@ -180,6 +181,23 @@ class ConnectSessionKnexStore extends express_session_1.Store {
                 }
                 await knex(tableName)
                     .where(sidFieldName, "=", sid)
+                    .update({
+                    expired: (0, utils_1.dateAsISO)(knex, session.cookie.expires),
+                });
+            }
+            else if (!avoidUnnecessaryTouch) {
+                const condition = (0, utils_1.expiredCondition)(knex);
+                if (verbose) {
+                    console.log("session touch", knex(tableName)
+                        .where(sidFieldName, "=", sid)
+                        .andWhereRaw(condition, (0, utils_1.dateAsISO)(knex))
+                        .update({
+                        expired: (0, utils_1.dateAsISO)(knex, session.cookie.expires),
+                    }).toSQL());
+                }
+                await knex(tableName)
+                    .where(sidFieldName, "=", sid)
+                    .andWhereRaw(condition, (0, utils_1.dateAsISO)(knex))
                     .update({
                     expired: (0, utils_1.dateAsISO)(knex, session.cookie.expires),
                 });
