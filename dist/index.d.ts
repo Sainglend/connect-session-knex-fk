@@ -8,6 +8,7 @@ interface Options {
     onDbCleanupError: (err: unknown) => void;
     tableName: string;
     sidFieldName: string;
+    verbose: boolean;
 }
 export declare class ConnectSessionKnexStore extends Store {
     options: Options;

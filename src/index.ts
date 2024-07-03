@@ -23,6 +23,7 @@ interface Options {
   onDbCleanupError: (err: unknown) => void;
   tableName: string;
   sidFieldName: string;
+  verbose: boolean;
 }
 
 export class ConnectSessionKnexStore extends Store {
@@ -41,6 +42,7 @@ export class ConnectSessionKnexStore extends Store {
       onDbCleanupError: (err: unknown) => {
         console.error(err);
       },
+      verbose: false,
       ...incomingOptions,
       knex:
         incomingOptions.knex ??
@@ -89,8 +91,16 @@ export class ConnectSessionKnexStore extends Store {
   ) {
     try {
       await this.ready;
-      const { knex, tableName, sidFieldName } = this.options;
+      const { knex, tableName, sidFieldName, verbose } = this.options;
       const condition = expiredCondition(knex);
+
+      if (verbose) {
+        console.log("session get", knex
+        .select("sess")
+        .from(tableName)
+        .where(sidFieldName, "=", sid)
+        .andWhereRaw(condition, dateAsISO(knex)).toSQL());
+      }
 
       const response = await knex
         .select("sess")
@@ -116,7 +126,7 @@ export class ConnectSessionKnexStore extends Store {
   async set(sid: string, session: SessionData, callback?: (err?: any) => void) {
     try {
       await this.ready;
-      const { knex, tableName, sidFieldName } = this.options;
+      const { knex, tableName, sidFieldName, verbose } = this.options;
       const { maxAge } = session.cookie;
       const now = new Date().getTime();
       const expired = maxAge ? now + maxAge : now + 86400000; // 86400000 = add one day
@@ -133,6 +143,13 @@ export class ConnectSessionKnexStore extends Store {
         ]);
       } else if (isPostgres(knex) && parseFloat(knex.client.version) >= 9.2) {
         // postgresql optimized query
+        if (verbose) {
+          console.log("session set", knex.raw(getPostgresFastQuery(tableName, sidFieldName), [
+            sid,
+            dbDate,
+            sess,
+          ]).toSQL());
+        }
         await knex.raw(getPostgresFastQuery(tableName, sidFieldName), [
           sid,
           dbDate,
@@ -182,17 +199,23 @@ export class ConnectSessionKnexStore extends Store {
 
   async touch(sid: string, session: SessionData, callback?: () => void) {
     await this.ready;
-    const { knex, tableName, sidFieldName } = this.options;
+    const { knex, tableName, sidFieldName, verbose } = this.options;
 
     if (session && session.cookie && session.cookie.expires) {
-      const condition = expiredCondition(knex);
-
-      await knex(tableName)
-        .where(sidFieldName, "=", sid)
-        .andWhereRaw(condition, dateAsISO(knex))
-        .update({
-          expired: dateAsISO(knex, session.cookie.expires),
-        });
+      if (Date.now() <= session.cookie.expires.getTime()) {
+        if (verbose) {
+          console.log("session touch", knex(tableName)
+            .where(sidFieldName, "=", sid)
+            .update({
+              expired: dateAsISO(knex, session.cookie.expires),
+            }).toSQL());
+        }
+        await knex(tableName)
+          .where(sidFieldName, "=", sid)
+          .update({
+            expired: dateAsISO(knex, session.cookie.expires),
+          });
+      }
     }
     callback?.();
   }
@@ -200,8 +223,14 @@ export class ConnectSessionKnexStore extends Store {
   async destroy(sid: string, callback?: (err?: any) => void) {
     try {
       await this.ready;
-      const { knex, tableName, sidFieldName } = this.options;
+      const { knex, tableName, sidFieldName, verbose } = this.options;
 
+      if (verbose) {
+        console.log("destroy session", knex
+          .del()
+          .from(tableName)
+          .where(sidFieldName, "=", sid).toSQL());
+      }
       const retVal = await knex
         .del()
         .from(tableName)
@@ -217,9 +246,14 @@ export class ConnectSessionKnexStore extends Store {
   async length(callback: (err: any, length?: number) => void) {
     try {
       await this.ready;
-      const { knex, tableName, sidFieldName } = this.options;
+      const { knex, tableName, sidFieldName, verbose } = this.options;
 
       let length;
+      if (verbose) {
+        console.log("session length", knex
+          .count(`${sidFieldName} as count`)
+          .from(tableName).toSQL())
+      }
       const response = await knex
         .count(`${sidFieldName} as count`)
         .from(tableName);
@@ -239,8 +273,9 @@ export class ConnectSessionKnexStore extends Store {
   async clear(callback?: (err?: any) => void) {
     try {
       await this.ready;
-      const { knex, tableName } = this.options;
+      const { knex, tableName, verbose } = this.options;
 
+      if (verbose) console.log("session clear", knex.del().from(tableName).toSQL());
       const res = await knex.del().from(tableName);
       callback?.();
       return res;
@@ -258,9 +293,17 @@ export class ConnectSessionKnexStore extends Store {
   ) {
     try {
       await this.ready;
-      const { knex, tableName } = this.options;
+      const { knex, tableName, verbose } = this.options;
 
       const condition = expiredCondition(knex);
+
+      if (verbose) {
+        console.log("session all", knex
+          .select("sess")
+          .from(tableName)
+          .whereRaw(condition, dateAsISO(knex)).toSQL());
+      }
+
       const rows = await knex
         .select("sess")
         .from(tableName)
@@ -283,7 +326,7 @@ export class ConnectSessionKnexStore extends Store {
   }
 
   private async dbCleanup() {
-    const { cleanupInterval, knex, tableName, onDbCleanupError } = this.options;
+    const { cleanupInterval, knex, tableName, onDbCleanupError, verbose } = this.options;
 
     try {
       await this.ready;
@@ -294,6 +337,7 @@ export class ConnectSessionKnexStore extends Store {
       } else if (isOracle(knex)) {
         condition = `"expired" < CAST(? as ${timestampTypeName(knex)})`;
       }
+      if (verbose) console.log("session dbCleanup", knex(tableName).del().whereRaw(condition, dateAsISO(knex)).toSQL());
       await knex(tableName).del().whereRaw(condition, dateAsISO(knex));
     } catch (err: unknown) {
       onDbCleanupError?.(err);

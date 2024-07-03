@@ -1,5 +1,5 @@
 {
-  "name": "connect-session-knex",
+  "name": "connect-session-knex-fk",
   "description": "A knex.js session store for Express and Connect",
   "version": "5.0.0",
   "main": "dist/index.js",
